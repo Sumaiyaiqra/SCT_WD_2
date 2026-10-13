@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Calculator Web Application</title>
+<style>
+:root{--bg:#15151d;--card:#22222e;--key:#2d2d3c;--keyh:#383849;--text:#f4f4f8;--mute:#8b8ba0;--acc:#2fb8a6;--acc2:#3b6fd4;--op:#3b6fd4;--danger:#e0434f;--red:#d21f2b;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#eceef4;--card:#fff;--key:#eef0f6;--keyh:#dfe3ee;--text:#1a1a26;--mute:#6b6b80}}
+:root[data-theme="light"]{--bg:#eceef4;--card:#fff;--key:#eef0f6;--keyh:#dfe3ee;--text:#1a1a26;--mute:#6b6b80}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:var(--bg);color:var(--text);font-family:Poppins,"Segoe UI",system-ui,sans-serif;position:relative;overflow-x:hidden}
+body::before,body::after{content:"";position:fixed;width:280px;height:280px;border-radius:50%;filter:blur(90px);opacity:.35;z-index:0}
+body::before{background:var(--acc);top:-90px;left:-90px}
+body::after{background:var(--acc2);bottom:-90px;right:-90px}
+main{position:relative;z-index:1;width:100%;max-width:360px}
+h1{font-size:13px;letter-spacing:.2em;text-transform:uppercase;text-align:center;margin:0 0 14px;color:var(--mute);font-weight:600}
+h1 span{border:1px solid var(--red);padding:5px 12px;color:var(--text)}
+.calc{background:var(--card);border-radius:24px;padding:18px;box-shadow:0 24px 60px rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.06)}
+.screen{background:rgba(0,0,0,.22);border-radius:16px;padding:14px 16px;min-height:112px;display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-end;margin-bottom:16px;overflow:hidden}
+#expr{color:var(--mute);font-size:16px;min-height:24px;word-break:break-all;text-align:right}
+#result{font-size:40px;font-weight:600;line-height:1.2;max-width:100%;overflow-x:auto;white-space:nowrap}
+#result.err{color:var(--danger);font-size:22px}
+.keys{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+button{font:inherit;font-size:20px;font-weight:500;height:60px;border:0;border-radius:16px;background:var(--key);color:var(--text);cursor:pointer;transition:transform .08s,background .15s}
+button:hover{background:var(--keyh)}
+button:active,button.pressed{transform:scale(.93)}
+button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.op{color:#fff;background:var(--op)}
+.op:hover{background:#4f83ea}
+.fn{color:var(--acc)}
+.clr{color:var(--danger)}
+.eq{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff}
+.eq:hover{filter:brightness(1.1);background:linear-gradient(135deg,var(--acc),var(--acc2))}
+.zero{grid-column:span 2}
+.hint{text-align:center;color:var(--mute);font-size:12px;margin-top:14px}
+</style>
+</head>
+<body>
+<main>
+<h1><span>Calculator</span></h1>
+<div class="calc">
+  <div class="screen" aria-live="polite">
+    <div id="expr"></div>
+    <div id="result">0</div>
+  </div>
+  <div class="keys" id="keys">
+    <button class="clr" data-k="C">AC</button>
+    <button class="fn" data-k="Backspace">⌫</button>
+    <button class="fn" data-k="%">%</button>
+    <button class="op" data-k="/">÷</button>
+    <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+    <button class="op" data-k="*">×</button>
+    <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+    <button class="op" data-k="-">−</button>
+    <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+    <button class="op" data-k="+">+</button>
+    <button class="zero" data-k="0">0</button>
+    <button data-k=".">.</button>
+    <button class="eq" id="equals" data-k="=">=</button>
+  </div>
+</div>
+<div class="hint">Keyboard: 0–9 · + − * / · Enter = · Backspace · Esc clear</div>
+</main>
+<script>
+const exprEl = document.getElementById('expr');
+const resEl = document.getElementById('result');
+const OPS = '+-*/';
+let expr = '';
+let justEvaluated = false;
+
+const sym = s => s.replace(/\*/g,'×').replace(/\//g,'÷').replace(/-/g,'−');
+
+// ---- Input parsing: tokenizer + recursive-descent parser (no eval) ----
+function tokenize(s){
+  const t = []; let i = 0;
+  while(i < s.length){
+    const c = s[i];
+    if(/[0-9.]/.test(c)){
+      let n = '';
+      while(i < s.length && /[0-9.]/.test(s[i])) n += s[i++];
+      if((n.match(/\./g)||[]).length > 1 || n === '.') throw new Error('Invalid number');
+      t.push({type:'num', v:parseFloat(n)});
+    } else if('+-*/%()'.includes(c)){ t.push({type:c}); i++; }
+    else throw new Error('Invalid input');
+  }
+  return t;
+}
+function evaluate(s){
+  const t = tokenize(s); let p = 0;
+  const peek = () => t[p] && t[p].type;
+  function expression(){
+    let v = term();
+    while(peek()==='+' || peek()==='-'){ const o = t[p++].type; const r = term(); v = o==='+' ? v+r : v-r; }
+    return v;
+  }
+  function term(){
+    let v = unary();
+    while(peek()==='*' || peek()==='/'){
+      const o = t[p++].type; const r = unary();
+      if(o==='/' && r===0) throw new Error('Cannot divide by zero');
+      v = o==='*' ? v*r : v/r;
+    }
+    return v;
+  }
+  function unary(){
+    if(peek()==='-'){ p++; return -unary(); }
+    if(peek()==='+'){ p++; return unary(); }
+    return primary();
+  }
+  function primary(){
+    let v;
+    if(peek()==='num') v = t[p++].v;
+    else if(peek()==='('){ p++; v = expression(); if(peek()!==')') throw new Error('Missing )'); p++; }
+    else throw new Error('Incomplete expression');
+    while(peek()==='%'){ p++; v /= 100; }
+    return v;
+  }
+  const out = expression();
+  if(p < t.length) throw new Error('Invalid expression');
+  if(!isFinite(out)) throw new Error('Math error');
+  return out;
+}
+const fmt = n => String(parseFloat(n.toPrecision(12)));
+
+// ---- Rendering ----
+function render(){
+  exprEl.textContent = sym(expr);
+  resEl.classList.remove('err');
+  if(!expr){ resEl.textContent = '0'; return; }
+  try { resEl.textContent = fmt(evaluate(expr)); }       // live preview
+  catch(e){ resEl.textContent = sym(expr.slice(-14)) || '0'; }
+}
+function showError(msg){
+  resEl.textContent = msg; resEl.classList.add('err');
+  expr = ''; justEvaluated = true;
+}
+
+// ---- Actions ----
+function press(k){
+  if(k === 'C'){ expr = ''; justEvaluated = false; return render(); }
+  if(k === 'Backspace'){ expr = expr.slice(0,-1); justEvaluated = false; return render(); }
+  if(k === '=' ){
+    if(!expr) return;
+    try{
+      const r = fmt(evaluate(expr));
+      exprEl.textContent = sym(expr) + ' =';
+      resEl.textContent = r; resEl.classList.remove('err');
+      expr = r; justEvaluated = true;
+    }catch(e){ exprEl.textContent = sym(expr); showError(e.message); }
+    return;
+  }
+  const last = expr.slice(-1);
+  if(/[0-9.]/.test(k)){
+    if(justEvaluated && !OPS.includes(last)) expr = '';
+    if(k === '.'){
+      const cur = expr.split(/[-+*/%()]/).pop();
+      if(cur.includes('.')) return;
+      if(cur === '') k = '0.';
+    }
+    expr += k;
+  } else if(OPS.includes(k)){
+    if(!expr && k !== '-') return;
+    if(OPS.includes(last)) expr = expr.slice(0,-1);   // replace duplicate operator
+    expr += k;
+  } else if(k === '%'){
+    if(!/[0-9)%]/.test(last)) return;
+    expr += k;
+  }
+  justEvaluated = false;
+  render();
+}
+
+// ---- Event listeners ----
+document.getElementById('keys').addEventListener('click', e => {
+  const b = e.target.closest('button'); if(b) press(b.dataset.k);
+});
+document.getElementById('equals').addEventListener('click', () => press('='));
+
+document.addEventListener('keydown', e => {
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  let k = e.key;
+  if(k === 'Enter' || k === '=') k = '=';
+  else if(k === 'Escape' || k === 'Delete') k = 'C';
+  else if(k === 'x' || k === 'X') k = '*';
+  else if(!/^[0-9.+\-*\/%]$|^Backspace$/.test(k)) return;
+  e.preventDefault();
+  press(k);
+  const btn = document.querySelector(`button[data-k="${CSS.escape(k)}"]`);
+  if(btn){ btn.classList.add('pressed'); setTimeout(() => btn.classList.remove('pressed'), 110); }
+});
+render();
+</script>
+</body>
+</html>
